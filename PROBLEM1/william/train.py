@@ -4,14 +4,16 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms, models
 import os
-from tqdm import tqdm  # Import tqdm for progress bars
+from tqdm import tqdm  # Import tqdm for progress bar
 
 # === Constants ===
-DATA_DIR = 'images/NGD_HACK'
+DATA_DIR = 'images/NGD_HACK_NO_BB'
 IMAGE_SIZE = (224, 224)
-BATCH_SIZE = 32
+BATCH_SIZE = 128
 SEED = 123
 NUM_CLASSES = 26
+
+torch.backends.cudnn.benchmark = True
 
 # Set random seeds for reproducibility
 torch.manual_seed(SEED)
@@ -80,7 +82,6 @@ def unfreeze_model(model):
         param.requires_grad = True
         
     # Freeze first 100 layers (approximate conversion from TF code)
-    # EfficientNet has different structure in PyTorch, so we freeze the first few blocks
     frozen_count = 0
     for name, param in model.named_parameters():
         if 'features.0.' in name or 'features.1.' in name or 'features.2.' in name:
