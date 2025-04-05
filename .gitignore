@@ -13,6 +13,7 @@ PROBLEM1/william/images.zip
 **/images/**
 /PROBLEM2/william_pipeline/venv
 /PROBLEM2/william_pipeline/dataset
+/PROBLEM2/william_pipeline/myenv/**
 /PROBLEM2/william_pipeline/videos
 /PROBLEM2/william_pipeline/yolo_dataset
 /PROBLEM2/william_pipeline/output
