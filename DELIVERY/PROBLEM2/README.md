@@ -18,8 +18,11 @@ Om et produkt forsvinner og ikke kommer tilbake legges det til i "pending_scans"
 2. Activate venv
 3. python -m pip install -r requirements.txt
 4. You need to manually install the correct torch with the right cuda version for your pc. For example: `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121`
-5. put files into a "videos" folder in the same directory as main.py
-6. python main.py
+5. python main.py --video myvideo.mp4
 
 #### Cuda and MacOS silicon
 The program should detect cuda and apple silicon. If not, make sure the correct pip drivers are installed. See main.py for more details
+
+### Performance notes
+Hardware recommendations for optimal performance - This runs realtime using .2GB RAM on a mobile 3060 using about 50% of GPU. A Jetson should be capable of this.
+Yolo nano could run with relatively high accuracy (instead of yolo small) for better performance.

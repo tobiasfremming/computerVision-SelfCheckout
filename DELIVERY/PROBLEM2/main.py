@@ -14,6 +14,7 @@ from src.sort import Sort
 from datetime import timedelta
 import pandas as pd
 from collections import defaultdict
+import argparse  # Add this import at the top with your other imports
 
 CONFIDENCE = 0.4  # Confidence threshold for detections
 COOLDOWN = 0.4
@@ -82,6 +83,41 @@ def is_leftward_entry(current_pos, history, min_distance=50):
     return history[0][0] < 200 and avg_movement > 0
 
 def process_video(video_path, model, resolution, device='cpu'):
+    # Verify video file exists
+    if not os.path.exists(video_path):
+        print(f"❌ Error: Video file not found: {video_path}")
+        return pd.DataFrame()
+        
+    # Open video with better error handling
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"❌ Error: Could not open video file: {video_path}")
+        return pd.DataFrame()
+        
+    # Get video properties with validation
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        print(f"⚠️ Warning: Invalid FPS detected ({fps}), using default value of 30")
+        fps = 30
+        
+    # Calculate proper delay for waitKey (in milliseconds)
+    delay = max(1, int(1000 / fps))
+    
+    # Get frame dimensions
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    if frame_width <= 0 or frame_height <= 0:
+        print(f"❌ Error: Invalid video dimensions: {frame_width}x{frame_height}")
+        return pd.DataFrame()
+        
+    print(f"📹 Video info: {frame_width}x{frame_height} @ {fps} FPS")
+    
+    # Create window before entering loop
+    cv2.namedWindow("Object Detection", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Object Detection", 1280, 720)
+    
+    # Initialize tracker and other variables as before
     tracker = Sort(max_age=30, min_hits=3, iou_threshold=0.1)
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -141,9 +177,10 @@ def process_video(video_path, model, resolution, device='cpu'):
     active_objects = set()
     active_tracks = set()
     
-    while cap.isOpened():
+    while True:
         ret, frame = cap.read()
         if not ret:
+            print(f"🏁 End of video reached after {frame_num} frames")
             break
 
         frame_num += 1
@@ -478,6 +515,11 @@ def process_video(video_path, model, resolution, device='cpu'):
 
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Run object detection on videos')
+    parser.add_argument('--video', type=str, help='Specific video file to process (in videos directory)')
+    args = parser.parse_args()
+    
     # More detailed CUDA diagnostics
     print("\n----- CUDA Diagnostics -----")
     print(f"CUDA available: {torch.cuda.is_available()}")
@@ -500,20 +542,32 @@ def main():
     # Verify model device
     print(f"Model is on device: {next(model.parameters()).device}")
     
-    # Rest of your code remains the same
-    video_dir = "videos"
+    # Video processing logic
+    video_dir = ""
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
 
-    video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
+    # Process only specified video if provided
+    if args.video:
+        video_files = [args.video]
+    else:
+        video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
 
     for video_file in video_files:
-        resolution = int(video_file.split()[-1].replace("P.mp4", ""))
+        # Handle the case where user provided just the filename
+        video_path = os.path.join(video_dir, video_file) if not os.path.isabs(video_file) else video_file
+        
+        # Extract resolution from filename or default to 720p
+        try:
+            resolution = int(os.path.basename(video_file).split()[-1].replace("P.mp4", ""))
+        except (ValueError, IndexError):
+            resolution = 720  # Default resolution if can't extract from filename
+        
         # Pass the device to process_video
-        df = process_video(os.path.join(video_dir, video_file), model, resolution, device)
+        df = process_video(video_path, model, resolution, device)
 
         # Save results
-        base_name = os.path.splitext(video_file)[0]
+        base_name = os.path.splitext(os.path.basename(video_file))[0]
         csv_path = os.path.join(output_dir, f"{base_name}_receipt.csv")
         df.to_csv(csv_path, index=False)
         print(f"✅ Receipt saved to {csv_path}")
