@@ -49,7 +49,7 @@ def get_scan_zone(resolution):
     elif resolution == 720:
         return (260, 440, 720, 640)
     elif resolution == 1080:
-        return (330, 580, 950, 850)
+        return (330, 380, 950, 650)  # corrected the y2 value
     else:
         return (300, 400, 600, 600)  # default fallback
 
@@ -68,6 +68,11 @@ def process_video(video_path, model, resolution):
     scan_zone = get_scan_zone(resolution)
 
     scanned_log = {}  # track_id -> (product_name, timestamp)
+
+    last_class_scan_time = {}  # class_id -> frame_num
+    cooldown_frames = int(0.5 * fps)  # 0.3 seconds worth of frames
+    print(cooldown_frames)
+
     output_df = []
 
     print(f"\n🔍 Processing {video_path} at {resolution}p...")
@@ -141,11 +146,21 @@ def process_video(video_path, model, resolution):
                 # Process scan events as before
                 if cls_id is not None and track_id not in scanned_log:
                     if is_inside_scan_area((x1, y1, x2, y2), scan_zone):
-                        product_name = class_id_to_name.get(cls_id, f"Product_{cls_id}")
-                        scanned_log[track_id] = (product_name, timestamp)
-                        output_df.append({"timestamp": timestamp, "product": product_name, "track_id": track_id})
-                        print(f"🛒 [{timestamp}] Scanned: {product_name} (ID: {track_id})")
-
+                        # Check if this class has been scanned recently
+                        can_scan = True
+                        if cls_id in last_class_scan_time:
+                            time_since_last_scan = frame_num - last_class_scan_time[cls_id]
+                            if time_since_last_scan < cooldown_frames:
+                                can_scan = False
+                                # Optionally add debug info
+                                # print(f"Cooldown active for {class_id_to_name.get(cls_id)} ({time_since_last_scan/fps:.1f}s)")
+                        if can_scan:
+                            product_name = class_id_to_name.get(cls_id, f"Product_{cls_id}")
+                            scanned_log[track_id] = (product_name, timestamp)
+                            last_class_scan_time[cls_id] = frame_num  # Update last scan time
+                            output_df.append({"timestamp": timestamp, "product": product_name, "track_id": track_id})
+                            print(f"🛒 [{timestamp}] Scanned: {product_name} (ID: {track_id})")
+                                
         # Add timestamp to the frame
         cv2.putText(display_frame, timestamp, (10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
