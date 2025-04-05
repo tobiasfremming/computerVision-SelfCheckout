@@ -75,6 +75,31 @@ class MLPClassifier(nn.Module):
 
     def forward(self, x):
         return self.classifier(x)
+    
+    
+    
+def create_efficientnet_model(num_classes=NUM_CLASSES):
+    print("Loading pretrained EfficientNet-B3...")
+    # Load pretrained EfficientNet-B3
+    model = models.efficientnet_b3(pretrained=True)
+    
+    # Freeze all base layers
+    for param in model.parameters():
+        param.requires_grad = False
+    
+    # Replace the classifier
+    in_features = model.classifier[1].in_features
+    model.classifier = nn.Sequential(
+        nn.Dropout(p=0.3, inplace=True),
+        nn.Linear(in_features=in_features, out_features=256),
+        nn.ReLU(),
+        nn.Dropout(p=0.2),
+        nn.Linear(in_features=256, out_features=num_classes)
+    )
+    
+    print("Model prepared with frozen base layers and new classifier")
+    return model
+
 
 # ===========================
 #   TRAINING LOOP (1 EPOCH)
@@ -160,7 +185,7 @@ def train_model(train_loader, val_loader=None, num_epochs=EPOCHS):
     
     # Loss function & optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
     
     # Training Loop
     for epoch in range(num_epochs):
