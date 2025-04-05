@@ -49,7 +49,7 @@ def get_scan_zone(resolution):
     elif resolution == 720:
         return (350, 240, 700, 600)
     elif resolution == 1080:
-        return (645, 350, 1280, 1120)  # corrected the y2 value
+        return (750, 350, 1280, 1120)
     else:
         return (300, 400, 600, 600)  # default fallback
 
@@ -71,7 +71,7 @@ def process_video(video_path, model, resolution):
     # Track recently disappeared objects - NEW STRUCTURE
     # Key is (cls_id, instance_id) to allow multiple objects of same class
     disappeared_objects = {}  
-    reappearance_window = int(1.5 * fps)  # Increased to 3 seconds for better recall
+    reappearance_window = int(1 * fps)  # Increased to 3 seconds for better recall
     
     # Track instances per class
     instance_counters = {}  # cls_id -> count
