@@ -60,7 +60,6 @@ def is_inside_scan_area(bbox, scan_zone):
     return (scan_zone[0] <= cx <= scan_zone[2] and
             scan_zone[1] <= cy <= scan_zone[3])
 
-# Run detection/tracking on a video file
 def process_video(video_path, model, resolution):
     tracker = Sort(max_age=30, min_hits=3, iou_threshold=0.3)
     cap = cv2.VideoCapture(video_path)
@@ -72,7 +71,10 @@ def process_video(video_path, model, resolution):
     output_df = []
 
     print(f"\n🔍 Processing {video_path} at {resolution}p...")
-
+    
+    # Create window for display
+    cv2.namedWindow("Object Detection", cv2.WINDOW_NORMAL)
+    
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -81,43 +83,82 @@ def process_video(video_path, model, resolution):
         frame_num += 1
         timestamp = str(timedelta(seconds=frame_num / fps))
 
+        # Make a copy of the frame for drawing
+        display_frame = frame.copy()
+        
+        # Draw scan zone
+        cv2.rectangle(display_frame, 
+                     (scan_zone[0], scan_zone[1]), 
+                     (scan_zone[2], scan_zone[3]), 
+                     (0, 255, 0), 2)
+
         # Run detection only every few frames
-        if frame_num % 2 != 0:
-            continue
+        if frame_num % 2 == 0:
+            results = model(frame, verbose=False)
+            preds = results[0].boxes
 
-        results = model(frame, verbose=False)
-        preds = results[0].boxes
+            detections = []
+            for det in preds:
+                conf = det.conf.item()
+                cls_id = int(det.cls.item())
+                x1, y1, x2, y2 = map(int, det.xyxy[0].tolist())
+                if conf > 0.5:
+                    detections.append([x1, y1, x2, y2, conf, cls_id])
 
-        detections = []
-        for det in preds:
-            conf = det.conf.item()
-            cls_id = int(det.cls.item())
-            x1, y1, x2, y2 = map(int, det.xyxy[0].tolist())
-            if conf > 0.5:
-                detections.append([x1, y1, x2, y2, conf, cls_id])
+            dets_np = np.array(detections)
+            if len(dets_np) == 0:
+                dets_np = np.empty((0, 6))
 
-        dets_np = np.array(detections)
-        if len(dets_np) == 0:
-            dets_np = np.empty((0, 6))
+            tracked_objects = tracker.update(dets_np)
 
-        tracked_objects = tracker.update(dets_np)
+            # Draw detected objects and tracking info
+            for trk in tracked_objects:
+                x1, y1, x2, y2, track_id = map(int, trk[:5])
+                cls_id = None
+                for det in detections:
+                    if all(abs(det[i] - trk[i]) < 8 for i in range(4)):  # fuzzy bbox match
+                        cls_id = int(det[5])
+                        break
 
-        for trk in tracked_objects:
-            x1, y1, x2, y2, track_id = map(int, trk[:5])
-            cls_id = None
-            for det in detections:
-                if all(abs(det[i] - trk[i]) < 8 for i in range(4)):  # fuzzy bbox match
-                    cls_id = int(det[5])
-                    break
-
-            if cls_id is not None and track_id not in scanned_log:
+                # Draw tracking box
                 if is_inside_scan_area((x1, y1, x2, y2), scan_zone):
+                    color = (0, 0, 255)  # Red for items in scan zone
+                else:
+                    color = (255, 0, 0)  # Blue for other tracked items
+                
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+                
+                # Add tracking ID and class label if available
+                label = f"ID:{track_id}"
+                if cls_id is not None:
                     product_name = class_id_to_name.get(cls_id, f"Product_{cls_id}")
-                    scanned_log[track_id] = (product_name, timestamp)
-                    output_df.append({"timestamp": timestamp, "product": product_name, "track_id": track_id})
-                    print(f"🛒 [{timestamp}] Scanned: {product_name} (ID: {track_id})")
+                    short_name = product_name.split()[0]  # Use first word to keep label short
+                    label += f" {short_name}"
+                
+                cv2.putText(display_frame, label, (x1, y1-10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                # Process scan events as before
+                if cls_id is not None and track_id not in scanned_log:
+                    if is_inside_scan_area((x1, y1, x2, y2), scan_zone):
+                        product_name = class_id_to_name.get(cls_id, f"Product_{cls_id}")
+                        scanned_log[track_id] = (product_name, timestamp)
+                        output_df.append({"timestamp": timestamp, "product": product_name, "track_id": track_id})
+                        print(f"🛒 [{timestamp}] Scanned: {product_name} (ID: {track_id})")
+
+        # Add timestamp to the frame
+        cv2.putText(display_frame, timestamp, (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        # Display the frame
+        cv2.imshow("Object Detection", display_frame)
+        
+        # Exit on 'q' key press
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
     cap.release()
+    cv2.destroyAllWindows()
 
     return pd.DataFrame(output_df)
 
