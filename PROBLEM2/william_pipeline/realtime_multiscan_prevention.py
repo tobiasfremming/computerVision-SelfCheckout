@@ -47,9 +47,9 @@ def get_scan_zone(resolution):
     if resolution == 480:
         return (300, 200, 560, 550)
     elif resolution == 720:
-        return (260, 440, 720, 640)
+        return (350, 240, 700, 600)
     elif resolution == 1080:
-        return (330, 380, 950, 650)  # corrected the y2 value
+        return (750, 350, 1280, 1120)
     else:
         return (300, 400, 600, 600)  # default fallback
 
@@ -71,7 +71,7 @@ def process_video(video_path, model, resolution):
     # Track recently disappeared objects - NEW STRUCTURE
     # Key is (cls_id, instance_id) to allow multiple objects of same class
     disappeared_objects = {}  
-    reappearance_window = int(1.5 * fps)  # Increased to 3 seconds for better recall
+    reappearance_window = int(1 * fps)  # Increased to 3 seconds for better recall
     
     # Track instances per class
     instance_counters = {}  # cls_id -> count
@@ -261,6 +261,9 @@ def main():
     video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
 
     for video_file in video_files:
+        if(video_file == "Nesten alle varer sakte tempo 480P.mp4"):
+            continue
+
         resolution = int(video_file.split()[-1].replace("P.mp4", ""))
         df = process_video(os.path.join(video_dir, video_file), model, resolution)
 
