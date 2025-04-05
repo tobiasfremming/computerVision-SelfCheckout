@@ -8,6 +8,7 @@
 import cv2
 import os
 import numpy as np
+import torch  # Add this import
 from ultralytics import YOLO
 from sort import Sort
 from datetime import timedelta
@@ -46,7 +47,7 @@ class_id_to_name = {
 # Define the scan region for detecting 'scan events'
 def get_scan_zone(resolution):
     if resolution == 480:
-        return (300, 200, 560, 550)
+        return (300, 200, 600, 550)
     elif resolution == 720:
         return (450, 320, 820, 740)
     elif resolution == 1080:
@@ -73,12 +74,17 @@ def is_leftward_entry(current_pos, history, min_distance=50):
     # Check if object entered from left (low x) and generally moving rightward
     return history[0][0] < 200 and avg_movement > 0
 
-def process_video(video_path, model, resolution):
-    tracker = Sort(max_age=30, min_hits=3, iou_threshold=0.3)
+def process_video(video_path, model, resolution, device='cpu'):
+    tracker = Sort(max_age=30, min_hits=3, iou_threshold=0.1)
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_num = 0
     scan_zone = get_scan_zone(resolution)
+
+    # Add at the beginning of process_video function (after initializing 'cap')
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    scan_threshold_x = int(frame_width * 0.40)  # 45% of frame width (changed from 0.6)
+    max_x_positions = {}  # track_id -> max x position reached
 
     # Track position history for each tracking ID
     position_history = defaultdict(list)  # track_id -> list of (x, y) center positions
@@ -128,9 +134,15 @@ def process_video(video_path, model, resolution):
                      (scan_zone[2], scan_zone[3]), 
                      (0, 255, 0), 2)
 
+        # Draw scan threshold line
+        cv2.line(display_frame, 
+                 (scan_threshold_x, 0), 
+                 (scan_threshold_x, display_frame.shape[0]), 
+                 (255, 255, 0), 2)
+
         # Run detection only every few frames
-        if frame_num % 2 == 0:
-            results = model(frame, verbose=False)
+        if frame_num % 1 == 0:
+            results = model(frame, verbose=False, device=device)  # Specify device here
             preds = results[0].boxes
 
             detections = []
@@ -240,6 +252,12 @@ def process_video(video_path, model, resolution):
 
                 # Process scan events if not already scanned
                 if track_id not in scanned_log and is_inside_scan_area((x1, y1, x2, y2), scan_zone):
+                    # Update max x position for this track
+                    if track_id not in max_x_positions:
+                        max_x_positions[track_id] = center_x
+                    else:
+                        max_x_positions[track_id] = max(max_x_positions[track_id], center_x)
+                    
                     # Check if this class has been scanned recently (cooldown)
                     can_scan = True
                     if cls_id in last_class_scan_time:
@@ -249,10 +267,9 @@ def process_video(video_path, model, resolution):
                             cv2.putText(display_frame, "COOLDOWN", (x1, y1-30), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 165, 0), 2)
                     
-                    # New check: Verify we have enough position history and not just entered from left
+                    # Check if we have enough position history and object has crossed threshold
                     if can_scan and len(position_history[track_id]) >= min_positions_required:
-                        # Check if object didn't just enter from the left side
-                        if not is_leftward_entry(center_x, position_history[track_id]):
+                        if max_x_positions[track_id] >= scan_threshold_x:
                             scanned_log[track_id] = (product_name, timestamp)
                             last_class_scan_time[cls_id] = frame_num  # Update last scan time
                             output_df.append({"timestamp": timestamp, "product": product_name, "track_id": track_id})
@@ -260,8 +277,8 @@ def process_video(video_path, model, resolution):
                             cv2.putText(display_frame, "SCANNED", (x1, y1-30), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                         else:
-                            # Object appears to be entering from left, don't scan yet
-                            cv2.putText(display_frame, "LEFT ENTRY", (x1, y1-30), 
+                            # Object hasn't passed the threshold yet
+                            cv2.putText(display_frame, f"WAIT {max_x_positions[track_id]}/{scan_threshold_x}", (x1, y1-30), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
             
             # Clean up old disappeared objects that haven't been seen in a while
@@ -288,8 +305,19 @@ def process_video(video_path, model, resolution):
 
 
 def main():
+    # Check for available hardware acceleration
+    if torch.cuda.is_available():
+        device = 'cuda'
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = 'mps'  # Apple Silicon
+    else:
+        device = 'cpu'
+    
+    print(f"🚀 Using device: {device}")
+    
+    # Load model and move it to the selected device
     model = YOLO("best.pt")
-
+    
     video_dir = "videos"
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
@@ -297,11 +325,9 @@ def main():
     video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
 
     for video_file in video_files:
-        #if(video_file == "Nesten alle varer sakte tempo 480P.mp4"):
-        #    continue
-
         resolution = int(video_file.split()[-1].replace("P.mp4", ""))
-        df = process_video(os.path.join(video_dir, video_file), model, resolution)
+        # Pass the device to process_video
+        df = process_video(os.path.join(video_dir, video_file), model, resolution, device)
 
         # Save results
         base_name = os.path.splitext(video_file)[0]
