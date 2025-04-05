@@ -49,12 +49,11 @@ class_id_to_name = {
 
 # Define the scan region for detecting 'scan events'
 def get_scan_zone(cap):
-    
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     # Your chosen normalized coordinates [0..1]
-    x1_uv, y1_uv, x2_uv, y2_uv = (0.35, 0.35, 0.7, 1.0)
+    x1_uv, y1_uv, x2_uv, y2_uv = (0.35, 0.35, 0.675, 1.0)
 
     x1 = int(x1_uv * width)
     y1 = int(y1_uv * height)
