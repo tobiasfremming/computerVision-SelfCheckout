@@ -12,6 +12,7 @@ Vi har i tillegg implementert funksjonalitet for å unngå multi-scanning av det
 Om et produkt forsvinner og ikke kommer tilbake legges det til i "pending_scans" hvor det etter en gitt tid (rundt 0.4s) lagres i kvitteringen.
 
 ### Running the system
+*Use python 3.10.0*
 1. python -m venv venv
 2. Activate venv
 3. python -m pip install -r requirements.txt
