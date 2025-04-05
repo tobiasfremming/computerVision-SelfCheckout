@@ -10,7 +10,7 @@ import os
 import numpy as np
 import torch  # Add this import
 from ultralytics import YOLO
-from sort import Sort
+from Innlevering.oppg2.src.sort import Sort
 from datetime import timedelta
 import pandas as pd
 from collections import defaultdict
@@ -495,7 +495,7 @@ def main():
     print(f"🚀 Using device: {device}")
     
     # Load model and explicitly move it to the selected device
-    model = YOLO("best.pt").to(device)
+    model = YOLO("./models/best.pt").to(device)
     
     # Verify model device
     print(f"Model is on device: {next(model.parameters()).device}")
