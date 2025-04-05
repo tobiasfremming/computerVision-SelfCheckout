@@ -44,6 +44,8 @@ class_id_to_name = {
     22: "Gulrot 1kg (7040513001753)",
     23: "Gulrot 750g (7040513000022)",
     24: "Kjøttdeig Angus (7020097026113)",
+
+
     25: "Banan (4011)"
 }
 
@@ -62,8 +64,6 @@ def get_scan_zone(cap):
     y2 = int(y2_uv * height)
 
     return (x1, y1, x2, y2)
-
-
 
     # match resolution:
     #     case 4000080:
