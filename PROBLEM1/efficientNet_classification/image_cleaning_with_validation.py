@@ -75,7 +75,7 @@ def split_images_into_train_and_validation(source_dir, dest_dir, validation_dir,
 
 if __name__ == "__main__":
     # Set these to your actual paths
-    source_directory = "images/NGD_HACK"
+    source_directory = "../../data/images/NGD_HACK"
     train_directory = "images/NGD_HACK_NO_BB"
     validation_directory = "images/NGD_HACK_VALIDATION"
 
