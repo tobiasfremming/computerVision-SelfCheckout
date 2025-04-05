@@ -52,7 +52,7 @@ def get_scan_zone(resolution):
     if resolution == 480:
         return (300, 200, 600, 550)
     elif resolution == 720:
-        return (450, 320, 820, 740)
+        return (430, 300, 840, 740)
     elif resolution == 1080:
         return (700, 350, 1280, 1120)
     else:
