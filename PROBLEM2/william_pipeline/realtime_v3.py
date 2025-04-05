@@ -48,15 +48,42 @@ class_id_to_name = {
 }
 
 # Define the scan region for detecting 'scan events'
-def get_scan_zone(resolution):
-    if resolution == 480:
-        return (300, 200, 600, 550)
-    elif resolution == 720:
-        return (450, 320, 820, 740)
-    elif resolution == 1080:
-        return (700, 350, 1280, 1120)
-    else:
-        return (300, 400, 600, 600)  # default fallback
+def get_scan_zone(cap):
+    
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # Your chosen normalized coordinates [0..1]
+    x1_uv, y1_uv, x2_uv, y2_uv = (0.35, 0.35, 0.7, 1.0)
+
+    x1 = int(x1_uv * width)
+    y1 = int(y1_uv * height)
+    x2 = int(x2_uv * width)
+    y2 = int(y2_uv * height)
+
+    return (x1, y1, x2, y2)
+
+
+
+    # match resolution:
+    #     case 4000080:
+    #         return (300, 200, 600, 550)
+    #     case 70000020:
+    #         return (450, 320, 820, 740)
+    #     case 100000080:
+    #         return (700, 350, 1280, 1120)
+    #     case _:
+    #         width = int(2 * resolution)
+    #         height = int(resolution)
+    #         x1_uv, y1_uv, x2_uv, y2_uv = (0.3, 0.4, 0.6, 1.0)
+    #         x1 = int(x1_uv * width)
+    #         y1 = int(y1_uv * height)
+    #         x2 = int(x2_uv * width)
+    #         y2 = int(y2_uv * height)
+
+    #         return (x1, y1, x2, y2)
+            
+ 
 
 def is_inside_scan_area(bbox, scan_zone):
     x1, y1, x2, y2 = bbox
@@ -82,7 +109,7 @@ def process_video(video_path, model, resolution, device='cpu'):
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_num = 0
-    scan_zone = get_scan_zone(resolution)
+    scan_zone = get_scan_zone(cap)
 
     # Add at the beginning of process_video function (after initializing 'cap')
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -118,8 +145,11 @@ def process_video(video_path, model, resolution, device='cpu'):
     
     # Track which objects were seen in current frame - keyed by (cls_id, instance_id)
     active_objects = set()
-    
+    count = 0
     while cap.isOpened():
+        count += 1
+        if count >= 100:
+            break
         ret, frame = cap.read()
         if not ret:
             break
@@ -331,13 +361,14 @@ def main():
     print(f"Model is on device: {next(model.parameters()).device}")
     
     # Rest of your code remains the same
-    video_dir = "videos"
+    video_dir = "../../data/videos"
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
 
     video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
 
     for video_file in video_files:
+       
         resolution = int(video_file.split()[-1].replace("P.mp4", ""))
         # Pass the device to process_video
         df = process_video(os.path.join(video_dir, video_file), model, resolution, device)
