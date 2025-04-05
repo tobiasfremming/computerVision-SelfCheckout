@@ -45,7 +45,7 @@ class_id_to_name = {
 # Define the scan region for detecting 'scan events'
 def get_scan_zone(resolution):
     if resolution == 480:
-        return (200, 300, 440, 430)
+        return (300, 200, 560, 550)
     elif resolution == 720:
         return (260, 440, 720, 640)
     elif resolution == 1080:
