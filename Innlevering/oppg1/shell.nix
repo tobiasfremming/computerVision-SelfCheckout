@@ -23,3 +23,4 @@ pkgs.mkShell {
     export GI_TYPELIB_PATH=${pkgs.gtk3}/lib/girepository-1.0:$GI_TYPELIB_PATH
   '';
 }
+
