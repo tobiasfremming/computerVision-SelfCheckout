@@ -305,19 +305,29 @@ def process_video(video_path, model, resolution, device='cpu'):
 
 
 def main():
-    # Check for available hardware acceleration
+    # More detailed CUDA diagnostics
+    print("\n----- CUDA Diagnostics -----")
+    print(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
+        print(f"CUDA device count: {torch.cuda.device_count()}")
+        print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
         device = 'cuda'
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        print("Apple Silicon MPS is available")
         device = 'mps'  # Apple Silicon
     else:
+        print("No GPU acceleration available, using CPU")
         device = 'cpu'
     
     print(f"🚀 Using device: {device}")
     
-    # Load model and move it to the selected device
-    model = YOLO("best.pt")
+    # Load model and explicitly move it to the selected device
+    model = YOLO("best.pt").to(device)
     
+    # Verify model device
+    print(f"Model is on device: {next(model.parameters()).device}")
+    
+    # Rest of your code remains the same
     video_dir = "videos"
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
