@@ -16,8 +16,8 @@ Om et produkt forsvinner og ikke kommer tilbake legges det til i "pending_scans"
 
 1. python -m venv venv
 2. Activate venv
-3. Before installing requirements you need to manually install the correct torch with the right cuda version for your pc. For example: `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121`
-4. python -m pip install -r requirements.txt
+3. python -m pip install -r requirements.txt
+4. You need to manually install the correct torch with the right cuda version for your pc. For example: `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121`
 5. python final_system.py
 6. put files into a videos folder in the same directory as final_system.py
 
