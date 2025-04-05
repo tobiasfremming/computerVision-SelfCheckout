@@ -15,8 +15,8 @@ from datetime import timedelta
 import pandas as pd
 from collections import defaultdict
 
-CONFIDENCE = 0.5  # Confidence threshold for detections
-COOLDOWN = 0.8
+CONFIDENCE = 0.55  # Confidence threshold for detections
+COOLDOWN = 0.5
 
 class_id_to_name = {
     0: "Leverpostei (7037203626563)",
@@ -48,42 +48,15 @@ class_id_to_name = {
 }
 
 # Define the scan region for detecting 'scan events'
-def get_scan_zone(cap):
-    
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    # Your chosen normalized coordinates [0..1]
-    x1_uv, y1_uv, x2_uv, y2_uv = (0.35, 0.35, 0.7, 1.0)
-
-    x1 = int(x1_uv * width)
-    y1 = int(y1_uv * height)
-    x2 = int(x2_uv * width)
-    y2 = int(y2_uv * height)
-
-    return (x1, y1, x2, y2)
-
-
-
-    # match resolution:
-    #     case 4000080:
-    #         return (300, 200, 600, 550)
-    #     case 70000020:
-    #         return (450, 320, 820, 740)
-    #     case 100000080:
-    #         return (700, 350, 1280, 1120)
-    #     case _:
-    #         width = int(2 * resolution)
-    #         height = int(resolution)
-    #         x1_uv, y1_uv, x2_uv, y2_uv = (0.3, 0.4, 0.6, 1.0)
-    #         x1 = int(x1_uv * width)
-    #         y1 = int(y1_uv * height)
-    #         x2 = int(x2_uv * width)
-    #         y2 = int(y2_uv * height)
-
-    #         return (x1, y1, x2, y2)
-            
- 
+def get_scan_zone(resolution):
+    if resolution == 480:
+        return (300, 200, 600, 550)
+    elif resolution == 720:
+        return (450, 320, 820, 740)
+    elif resolution == 1080:
+        return (700, 350, 1280, 1120)
+    else:
+        return (300, 400, 600, 600)  # default fallback
 
 def is_inside_scan_area(bbox, scan_zone):
     x1, y1, x2, y2 = bbox
@@ -109,7 +82,7 @@ def process_video(video_path, model, resolution, device='cpu'):
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_num = 0
-    scan_zone = get_scan_zone(cap)
+    scan_zone = get_scan_zone(resolution)
 
     # Add at the beginning of process_video function (after initializing 'cap')
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -121,12 +94,14 @@ def process_video(video_path, model, resolution, device='cpu'):
     history_limit = 10  # Keep only the last 10 positions
     min_positions_required = 3  # Require at least 3 positions before scanning
     
+    # NEW: Track class predictions for voting
+    class_votes = defaultdict(lambda: defaultdict(int))  # track_id -> {class_id -> count}
+    
     scanned_log = {}  # track_id -> (product_name, timestamp)
     
-    # Track recently disappeared objects - NEW STRUCTURE
-    # Key is (cls_id, instance_id) to allow multiple objects of same class
+    # Track recently disappeared objects
     disappeared_objects = {}  
-    reappearance_window = int(1 * fps)  # Increased to 3 seconds for better recall
+    reappearance_window = int(1 * fps)  # 1 second window for reappearance
     
     # Track instances per class
     instance_counters = {}  # cls_id -> count
@@ -134,22 +109,24 @@ def process_video(video_path, model, resolution, device='cpu'):
     # For cooldown between scans
     last_class_scan_time = {}  # class_id -> frame_num
     cooldown_frames = int(COOLDOWN * fps)  # 0.5 seconds worth of frames
-    print(f"Cooldown frames: {cooldown_frames}")
-
+    
+    # NEW: Track objects in scan zone
+    objects_in_scan_zone = {}  # track_id -> first_seen_frame
+    scan_zone_timeout = int(2 * fps)  # 2 seconds max in scan zone
+    
     output_df = []
 
     print(f"\n🔍 Processing {video_path} at {resolution}p...")
+    print(f"Cooldown frames: {cooldown_frames}")
     
     # Create window for display
     cv2.namedWindow("Object Detection", cv2.WINDOW_NORMAL)
     
     # Track which objects were seen in current frame - keyed by (cls_id, instance_id)
     active_objects = set()
-    count = 0
+    active_tracks = set()
+    
     while cap.isOpened():
-        count += 1
-        if count >= 100:
-            break
         ret, frame = cap.read()
         if not ret:
             break
@@ -157,6 +134,7 @@ def process_video(video_path, model, resolution, device='cpu'):
         frame_num += 1
         timestamp = str(timedelta(seconds=frame_num / fps))
         active_objects.clear()
+        active_tracks.clear()
 
         # Make a copy of the frame for drawing
         display_frame = frame.copy()
@@ -175,7 +153,7 @@ def process_video(video_path, model, resolution, device='cpu'):
 
         # Run detection only every few frames
         if frame_num % 1 == 0:
-            results = model(frame, verbose=False, device=device)  # Specify device here
+            results = model(frame, verbose=False, device=device)
             preds = results[0].boxes
 
             detections = []
@@ -195,6 +173,7 @@ def process_video(video_path, model, resolution, device='cpu'):
             # Process objects with tracking info
             for trk in tracked_objects:
                 x1, y1, x2, y2, track_id = map(int, trk[:5])
+                active_tracks.add(track_id)
                 
                 # Calculate center position
                 center_x = (x1 + x2) // 2
@@ -215,6 +194,9 @@ def process_video(video_path, model, resolution, device='cpu'):
                 if cls_id is None:
                     continue
 
+                # NEW: Add vote for this class
+                class_votes[track_id][cls_id] += 1
+                
                 # Get or create instance ID for this track
                 if track_id not in scanned_log:
                     # Try to match with a disappeared object
@@ -267,53 +249,95 @@ def process_video(video_path, model, resolution, device='cpu'):
                     'track_id': track_id
                 }
 
+                # Check if object is in scan zone
+                is_in_scan = is_inside_scan_area((x1, y1, x2, y2), scan_zone)
+                
+                # NEW: Track when objects enter scan zone
+                if is_in_scan and track_id not in objects_in_scan_zone and track_id not in scanned_log:
+                    objects_in_scan_zone[track_id] = frame_num
+                
+                # Update max x position for this track
+                if track_id not in max_x_positions:
+                    max_x_positions[track_id] = center_x
+                else:
+                    max_x_positions[track_id] = max(max_x_positions[track_id], center_x)
+                
                 # Draw tracking box
-                if is_inside_scan_area((x1, y1, x2, y2), scan_zone):
+                if is_in_scan:
                     color = (0, 0, 255)  # Red for items in scan zone
                 else:
                     color = (255, 0, 0)  # Blue for other tracked items
                 
                 cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
                 
+                # Get most voted class if we have votes
+                if track_id in class_votes and class_votes[track_id]:
+                    most_frequent_cls = max(class_votes[track_id].items(), key=lambda x: x[1])[0]
+                    cls_id_to_show = most_frequent_cls
+                    vote_count = class_votes[track_id][most_frequent_cls]
+                    vote_info = f" ({vote_count} votes)"
+                else:
+                    cls_id_to_show = cls_id
+                    vote_info = ""
+                
                 # Add tracking ID and class label if available
-                product_name = class_id_to_name.get(cls_id, f"Product_{cls_id}")
+                product_name = class_id_to_name.get(cls_id_to_show, f"Product_{cls_id_to_show}")
                 short_name = product_name.split()[0]
-                label = f"ID:{track_id} {short_name}"
+                label = f"ID:{track_id} {short_name}{vote_info}"
                 
                 cv2.putText(display_frame, label, (x1, y1-10), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                # Process scan events if not already scanned
-                if track_id not in scanned_log and is_inside_scan_area((x1, y1, x2, y2), scan_zone):
-                    # Update max x position for this track
-                    if track_id not in max_x_positions:
-                        max_x_positions[track_id] = center_x
-                    else:
-                        max_x_positions[track_id] = max(max_x_positions[track_id], center_x)
+                
+                # Display current status for objects in scan zone
+                if track_id in objects_in_scan_zone:
+                    time_in_zone = frame_num - objects_in_scan_zone[track_id]
+                    past_cooldown = all(
+                        frame_num - last_class_scan_time.get(cls, 0) >= cooldown_frames 
+                        for cls in class_votes[track_id].keys()
+                    )
                     
-                    # Check if this class has been scanned recently (cooldown)
-                    can_scan = True
-                    if cls_id in last_class_scan_time:
-                        time_since_last_scan = frame_num - last_class_scan_time[cls_id]
-                        if time_since_last_scan < cooldown_frames:
-                            can_scan = False
+                    if track_id not in scanned_log:
+                        if not past_cooldown:
                             cv2.putText(display_frame, "COOLDOWN", (x1, y1-30), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 165, 0), 2)
-                    
-                    # Check if we have enough position history and object has crossed threshold
-                    if can_scan and len(position_history[track_id]) >= min_positions_required:
-                        if max_x_positions[track_id] >= scan_threshold_x:
-                            scanned_log[track_id] = (product_name, timestamp)
-                            last_class_scan_time[cls_id] = frame_num  # Update last scan time
-                            output_df.append({"timestamp": timestamp, "product": product_name, "track_id": track_id})
-                            print(f"🛒 [{timestamp}] Scanned: {product_name} (ID: {track_id})")
-                            cv2.putText(display_frame, "SCANNED", (x1, y1-30), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                        else:
-                            # Object hasn't passed the threshold yet
+                        elif max_x_positions[track_id] < scan_threshold_x:
                             cv2.putText(display_frame, f"WAIT {max_x_positions[track_id]}/{scan_threshold_x}", (x1, y1-30), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+                        elif time_in_zone < scan_zone_timeout:
+                            cv2.putText(display_frame, "COLLECTING VOTES", (x1, y1-30), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             
+            # Check for objects that left the scan zone or timed out
+            for track_id in list(objects_in_scan_zone.keys()):
+                # Skip if already scanned or still active in frame
+                if track_id in scanned_log or track_id in active_tracks:
+                    continue
+                
+                # Object is no longer being tracked - consider it left the frame
+                if track_id in class_votes and class_votes[track_id]:
+                    # Find the class with the most votes
+                    most_voted_cls, vote_count = max(class_votes[track_id].items(), key=lambda x: x[1])
+                    
+                    # Check if this class has been scanned recently (cooldown)
+                    if most_voted_cls not in last_class_scan_time or \
+                       frame_num - last_class_scan_time[most_voted_cls] >= cooldown_frames:
+                        
+                        # Only scan if it passed the threshold and has enough votes
+                        if max_x_positions.get(track_id, 0) >= scan_threshold_x and vote_count >= 3:
+                            product_name = class_id_to_name.get(most_voted_cls, f"Product_{most_voted_cls}")
+                            scanned_log[track_id] = (product_name, timestamp)
+                            last_class_scan_time[most_voted_cls] = frame_num  # Update last scan time
+                            output_df.append({
+                                "timestamp": timestamp, 
+                                "product": product_name, 
+                                "track_id": track_id, 
+                                "votes": vote_count
+                            })
+                            print(f"🛒 [{timestamp}] Scanned: {product_name} (ID: {track_id}, Votes: {vote_count})")
+                
+                # Remove from scan zone tracking
+                objects_in_scan_zone.pop(track_id, None)
+                
             # Clean up old disappeared objects that haven't been seen in a while
             for key in list(disappeared_objects.keys()):
                 if frame_num - disappeared_objects[key]['last_seen'] > reappearance_window:
@@ -361,14 +385,13 @@ def main():
     print(f"Model is on device: {next(model.parameters()).device}")
     
     # Rest of your code remains the same
-    video_dir = "../../data/videos"
+    video_dir = "videos"
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
 
     video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
 
     for video_file in video_files:
-       
         resolution = int(video_file.split()[-1].replace("P.mp4", ""))
         # Pass the device to process_video
         df = process_video(os.path.join(video_dir, video_file), model, resolution, device)
