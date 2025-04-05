@@ -15,6 +15,9 @@ from datetime import timedelta
 import pandas as pd
 from collections import defaultdict
 
+CONFIDENCE = 0.5  # Confidence threshold for detections
+COOLDOWN = 0.8
+
 class_id_to_name = {
     0: "Leverpostei (7037203626563)",
     1: "Epler Røde (4015)",
@@ -103,7 +106,7 @@ def process_video(video_path, model, resolution, device='cpu'):
     
     # For cooldown between scans
     last_class_scan_time = {}  # class_id -> frame_num
-    cooldown_frames = int(0.5 * fps)  # 0.5 seconds worth of frames
+    cooldown_frames = int(COOLDOWN * fps)  # 0.5 seconds worth of frames
     print(f"Cooldown frames: {cooldown_frames}")
 
     output_df = []
@@ -150,7 +153,7 @@ def process_video(video_path, model, resolution, device='cpu'):
                 conf = det.conf.item()
                 cls_id = int(det.cls.item())
                 x1, y1, x2, y2 = map(int, det.xyxy[0].tolist())
-                if conf > 0.5:
+                if conf > CONFIDENCE:
                     detections.append([x1, y1, x2, y2, conf, cls_id])
 
             dets_np = np.array(detections)
