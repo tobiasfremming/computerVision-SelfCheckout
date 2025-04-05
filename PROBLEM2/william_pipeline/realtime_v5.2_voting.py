@@ -16,7 +16,7 @@ import pandas as pd
 from collections import defaultdict
 
 CONFIDENCE = 0.4  # Confidence threshold for detections
-COOLDOWN = 0.5
+COOLDOWN = 0.4
 
 class_id_to_name = {
     0: "Leverpostei (7037203626563)",

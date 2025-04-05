@@ -16,7 +16,7 @@ import pandas as pd
 from collections import defaultdict
 
 CONFIDENCE = 0.4  # Confidence threshold for detections
-COOLDOWN = 0.5
+COOLDOWN = 0.4
 
 class_id_to_name = {
     0: "Leverpostei (7037203626563)",
@@ -367,13 +367,68 @@ def process_video(video_path, model, resolution, device='cpu'):
             for track_id in list(pending_scans.keys()):
                 most_voted_cls, vote_count, scan_timestamp, expiry_frame = pending_scans[track_id]
                 
-                # If the object reappeared in tracking, cancel the pending scan
+                # If the object reappeared in tracking, we need to check if we should cancel
                 if track_id in active_tracks:
-                    pending_scans.pop(track_id)
-                    # Clean up the products being processed
-                    products_being_processed.pop(most_voted_cls, None)
-                    print(f"🔄 [{timestamp}] Object reappeared, canceling scan (ID: {track_id})")
-                    continue
+                    # Get current position of the object
+                    current_pos = None
+                    for trk in tracked_objects:
+                        if int(trk[4]) == track_id:
+                            x1, y1, x2, y2 = map(int, trk[:4])
+                            current_pos = ((x1 + x2) // 2, (y1 + y2) // 2)
+                            break
+                    
+                    # If we found its position, check if it's leaving the scan area
+                    if current_pos:
+                        # Check if object is moving away from scan zone
+                        is_leaving = False
+                        
+                        # If it's outside scan zone and has moved beyond threshold, consider it leaving
+                        if current_pos[0] > scan_threshold_x + 100:
+                            is_leaving = True
+                        # In scan zone but still moving out
+                        elif is_inside_scan_area((x1, y1, x2, y2), scan_zone) and len(position_history[track_id]) >= 2:
+                            # Check if moving rightward (away from scan zone)
+                            prev_pos = position_history[track_id][-2][0]  # Previous x position
+                            current_x = current_pos[0]
+                            if current_x - prev_pos > 10:  # Moving rightward
+                                is_leaving = True
+                        
+                        if is_leaving:
+                            # This object is actually leaving - confirm the scan immediately
+                            product_name = class_id_to_name.get(most_voted_cls, f"Product_{most_voted_cls}")
+                            
+                            # Check cooldowns
+                            if frame_num - last_any_scan_time >= cooldown_frames:
+                                scanned_log[track_id] = (product_name, scan_timestamp)
+                                last_class_scan_time[most_voted_cls] = frame_num
+                                last_any_scan_time = frame_num
+                                
+                                output_df.append({
+                                    "timestamp": scan_timestamp, 
+                                    "product": product_name, 
+                                    "track_id": track_id, 
+                                    "votes": vote_count
+                                })
+                                print(f"🛒 [{timestamp}] Confirmed scan (object leaving): {product_name} (ID: {track_id}, Votes: {vote_count})")
+                            else:
+                                print(f"⏭️ [{timestamp}] Cancelled scan due to global cooldown: {product_name} (ID: {track_id})")
+                            
+                            # Clean up processed product tracking
+                            pending_scans.pop(track_id)
+                            products_being_processed.pop(most_voted_cls, None)
+                            continue
+                        else:
+                            # Object reappeared in or returning to scan zone - cancel pending scan and continue tracking
+                            pending_scans.pop(track_id)
+                            products_being_processed.pop(most_voted_cls, None)
+                            print(f"🔄 [{timestamp}] Object returned to scan zone, continuing tracking (ID: {track_id})")
+                            continue
+                    else:
+                        # Can't determine position - use the original behavior
+                        pending_scans.pop(track_id)
+                        products_being_processed.pop(most_voted_cls, None)
+                        print(f"🔄 [{timestamp}] Object reappeared but position unknown, canceling scan (ID: {track_id})")
+                        continue
                     
                 # If wait period has elapsed, finalize the scan
                 if frame_num >= expiry_frame:
