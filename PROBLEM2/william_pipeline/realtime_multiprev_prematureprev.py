@@ -83,7 +83,7 @@ def process_video(video_path, model, resolution, device='cpu'):
 
     # Add at the beginning of process_video function (after initializing 'cap')
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    scan_threshold_x = int(frame_width * 0.40)  # 45% of frame width (changed from 0.6)
+    scan_threshold_x = int(frame_width * 0.45)  # 45% of frame width (changed from 0.6)
     max_x_positions = {}  # track_id -> max x position reached
 
     # Track position history for each tracking ID
