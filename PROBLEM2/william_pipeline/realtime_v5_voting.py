@@ -15,7 +15,7 @@ from datetime import timedelta
 import pandas as pd
 from collections import defaultdict
 
-CONFIDENCE = 0.55  # Confidence threshold for detections
+CONFIDENCE = 0.4  # Confidence threshold for detections
 COOLDOWN = 0.5
 
 class_id_to_name = {
@@ -110,9 +110,16 @@ def process_video(video_path, model, resolution, device='cpu'):
     last_class_scan_time = {}  # class_id -> frame_num
     cooldown_frames = int(COOLDOWN * fps)  # 0.5 seconds worth of frames
     
+    # NEW: Add wait period for objects that leave tracking
+    pending_scans = {}  # track_id -> [most_voted_cls, vote_count, timestamp, expiry_frame]
+    wait_frames = int(COOLDOWN * fps)  # Use COOLDOWN seconds wait before finalizing scan
+    
     # NEW: Track objects in scan zone
     objects_in_scan_zone = {}  # track_id -> first_seen_frame
     scan_zone_timeout = int(2 * fps)  # 2 seconds max in scan zone
+    
+    # NEW: Add a tracking structure for products being processed to avoid duplicate scans
+    products_being_processed = {}  # cls_id -> expiry_frame
     
     output_df = []
 
@@ -318,26 +325,64 @@ def process_video(video_path, model, resolution, device='cpu'):
                     # Find the class with the most votes
                     most_voted_cls, vote_count = max(class_votes[track_id].items(), key=lambda x: x[1])
                     
+                    # NEW: Check if this product class is already being processed
+                    if most_voted_cls in products_being_processed and frame_num < products_being_processed[most_voted_cls]:
+                        print(f"⏩ [{timestamp}] Skipping duplicate scan of {class_id_to_name.get(most_voted_cls)} (ID: {track_id})")
+                        objects_in_scan_zone.pop(track_id, None)
+                        continue
+                        
                     # Check if this class has been scanned recently (cooldown)
                     if most_voted_cls not in last_class_scan_time or \
                        frame_num - last_class_scan_time[most_voted_cls] >= cooldown_frames:
                         
-                        # Only scan if it passed the threshold and has enough votes
+                        # Only continue if it passed the threshold and has enough votes
                         if max_x_positions.get(track_id, 0) >= scan_threshold_x and vote_count >= 3:
-                            product_name = class_id_to_name.get(most_voted_cls, f"Product_{most_voted_cls}")
-                            scanned_log[track_id] = (product_name, timestamp)
-                            last_class_scan_time[most_voted_cls] = frame_num  # Update last scan time
-                            output_df.append({
-                                "timestamp": timestamp, 
-                                "product": product_name, 
-                                "track_id": track_id, 
-                                "votes": vote_count
-                            })
-                            print(f"🛒 [{timestamp}] Scanned: {product_name} (ID: {track_id}, Votes: {vote_count})")
+                            # NEW: Mark this product class as being processed
+                            products_being_processed[most_voted_cls] = frame_num + wait_frames
+                            
+                            # Add to pending scans
+                            if track_id not in pending_scans:
+                                pending_scans[track_id] = [most_voted_cls, vote_count, timestamp, frame_num + wait_frames]
+                                print(f"⌛ [{timestamp}] Waiting {COOLDOWN}s to confirm scan: {class_id_to_name.get(most_voted_cls)} (ID: {track_id})")
                 
                 # Remove from scan zone tracking
                 objects_in_scan_zone.pop(track_id, None)
+            
+            # NEW: Check pending scans
+            for track_id in list(pending_scans.keys()):
+                most_voted_cls, vote_count, scan_timestamp, expiry_frame = pending_scans[track_id]
                 
+                # If the object reappeared in tracking, cancel the pending scan
+                if track_id in active_tracks:
+                    pending_scans.pop(track_id)
+                    print(f"🔄 [{timestamp}] Object reappeared, canceling scan (ID: {track_id})")
+                    continue
+                    
+                # If wait period has elapsed, finalize the scan
+                if frame_num >= expiry_frame:
+                    product_name = class_id_to_name.get(most_voted_cls, f"Product_{most_voted_cls}")
+                    
+                    # NEW: Double-check the cooldown before finalizing
+                    if most_voted_cls not in last_class_scan_time or \
+                       frame_num - last_class_scan_time[most_voted_cls] >= cooldown_frames:
+                        
+                        scanned_log[track_id] = (product_name, scan_timestamp)
+                        last_class_scan_time[most_voted_cls] = frame_num  # Update last scan time
+                        output_df.append({
+                            "timestamp": scan_timestamp, 
+                            "product": product_name, 
+                            "track_id": track_id, 
+                            "votes": vote_count
+                        })
+                        print(f"🛒 [{timestamp}] Confirmed scan: {product_name} (ID: {track_id}, Votes: {vote_count})")
+                        
+                        # NEW: Clean up processed product tracking
+                        products_being_processed.pop(most_voted_cls, None)
+                    else:
+                        print(f"⏭️ [{timestamp}] Cancelled scan due to cooldown: {product_name} (ID: {track_id})")
+                        
+                    pending_scans.pop(track_id)
+            
             # Clean up old disappeared objects that haven't been seen in a while
             for key in list(disappeared_objects.keys()):
                 if frame_num - disappeared_objects[key]['last_seen'] > reappearance_window:
