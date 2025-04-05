@@ -44,6 +44,36 @@ CLASS_MAPPING = {
     25: "4011",          # Banan
 }
 
+# Create reverse mapping for display purposes
+PRODUCT_NAMES = {
+    "7037203626563": "Leverpostei",
+    "4015": "Epler Røde",
+    "7038010009457": "Yoghurt Skogsbær",
+    "7071688004713": "Chips Havsalt",
+    "90433924": "Red Bull SF",
+    "94011": "Banan Øko",
+    "4196": "Appelsin",
+    "7037206100022": "Skinke",
+    "7040913336684": "Kaffe Evergood",
+    "7038010068980": "YT Vanilje",
+    "7048840205868": "Q Yoghurt",
+    "7038010013966": "Norvegia",
+    "7038010021145": "Jarlsberg",
+    "7039610000318": "Egg 12pk",
+    "4088": "Paprika",
+    "7035620058776": "Grove Rundstykker",
+    "7044610874661": "Pepsi Max",
+    "7622210410337": "Kvikk Lunsj",
+    "90433917": "Red Bull Reg",
+    "7038010054488": "Cottage Cheese",
+    "7023026089401": "Ruccula",
+    "7020097009819": "Karbonadedeig",
+    "7040513001753": "Gulrot 1kg",
+    "7040513000022": "Gulrot 750g",
+    "7020097026113": "Kjøttdeig Angus",
+    "4011": "Banan",
+}
+
 def load_ground_truth(txt_path):
     """Load ground truth bounding box from a text file."""
     with open(txt_path, 'r') as f:
@@ -92,7 +122,7 @@ def calculate_iou(box1, box2):
     
     return iou
 
-def process_image(model, image_path, txt_path, iou_threshold=0.5):
+def process_image(model, image_path, txt_path, iou_threshold=0.5, product_metrics=None):
     """Process a single image and compare with ground truth."""
     # Load the image
     image = Image.open(image_path)
@@ -143,11 +173,49 @@ def process_image(model, image_path, txt_path, iou_threshold=0.5):
         
         if best_iou >= iou_threshold and best_pred is not None:
             matched.append(best_pred)
+            
+            # Update product-specific metrics
+            if product_metrics is not None:
+                product_code = best_pred['product_code']
+                if product_code not in product_metrics:
+                    product_metrics[product_code] = {'tp': 0, 'fp': 0, 'fn': 0}
+                product_metrics[product_code]['tp'] += 1
     
     # Calculate metrics
     true_positives = len(matched)
     false_positives = len(predictions) - true_positives
     false_negatives = len(ground_truth) - true_positives
+    
+    # Update false positives and false negatives for product metrics
+    if product_metrics is not None:
+        # Count false positives by product
+        for pred in predictions:
+            if pred not in matched:
+                product_code = pred['product_code']
+                if product_code not in product_metrics:
+                    product_metrics[product_code] = {'tp': 0, 'fp': 0, 'fn': 0}
+                product_metrics[product_code]['fp'] += 1
+        
+        # Count false negatives by product
+        gt_product_counts = {}
+        for gt in ground_truth:
+            product_code = gt['label']
+            gt_product_counts[product_code] = gt_product_counts.get(product_code, 0) + 1
+        
+        # Compare with matched counts
+        matched_product_counts = {}
+        for pred in matched:
+            product_code = pred['product_code']
+            matched_product_counts[product_code] = matched_product_counts.get(product_code, 0) + 1
+        
+        # Calculate false negatives
+        for product_code, count in gt_product_counts.items():
+            matched_count = matched_product_counts.get(product_code, 0)
+            false_neg = count - matched_count
+            if false_neg > 0:
+                if product_code not in product_metrics:
+                    product_metrics[product_code] = {'tp': 0, 'fp': 0, 'fn': 0}
+                product_metrics[product_code]['fn'] += false_neg
     
     result = {
         'true_positives': true_positives,
@@ -178,6 +246,9 @@ def main():
     total_fp = 0
     total_fn = 0
     
+    # Dictionary to track metrics for each product
+    product_metrics = {}
+    
     # Process each image
     for dir_name in image_dirs:
         dir_path = os.path.join(args.data_dir, dir_name)
@@ -197,7 +268,7 @@ def main():
                 continue
             
             # Process the image
-            result = process_image(model, image_path, txt_path, args.iou_threshold)
+            result = process_image(model, image_path, txt_path, args.iou_threshold, product_metrics)
             
             # Update metrics
             total_tp += result['true_positives']
@@ -218,6 +289,44 @@ def main():
     print(f"F1 Score: {f1_score:.4f}")
     print(f"Accuracy: {total_tp / (total_tp + total_fp + total_fn):.4f}")
     print(f"Percent correct: {total_tp / (total_tp + total_fn) * 100:.2f}%")
+    
+    # Calculate and display per-product metrics
+    print("\nPer-Product Metrics:")
+    print("=" * 80)
+    print(f"{'Product Code':<15} {'Product Name':<20} {'TP':<5} {'FP':<5} {'FN':<5} {'Precision':<10} {'Recall':<10} {'F1 Score':<10} {'Accuracy %':<10}")
+    print("-" * 80)
+    
+    # Sort products by F1 score (descending)
+    sorted_products = []
+    for product_code, metrics in product_metrics.items():
+        tp = metrics['tp']
+        fp = metrics['fp']
+        fn = metrics['fn']
+        
+        # Calculate metrics
+        product_precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        product_recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        product_f1 = 2 * product_precision * product_recall / (product_precision + product_recall) if (product_precision + product_recall) > 0 else 0
+        product_accuracy = tp / (tp + fp + fn) * 100 if (tp + fp + fn) > 0 else 0
+        
+        sorted_products.append((
+            product_code,
+            PRODUCT_NAMES.get(product_code, "Unknown"),
+            tp,
+            fp,
+            fn,
+            product_precision,
+            product_recall,
+            product_f1,
+            product_accuracy
+        ))
+    
+    # Sort by F1 score (descending)
+    sorted_products.sort(key=lambda x: x[7], reverse=True)
+    
+    # Print sorted products
+    for product in sorted_products:
+        print(f"{product[0]:<15} {product[1]:<20} {product[2]:<5} {product[3]:<5} {product[4]:<5} {product[5]:.4f}     {product[6]:.4f}     {product[7]:.4f}     {product[8]:.2f}%")
 
 if __name__ == "__main__":
     main()
