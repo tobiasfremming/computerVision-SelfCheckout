@@ -26,4 +26,4 @@ The program should detect cuda and apple silicon. If not, make sure the correct 
 
 python evaluate_receipts.py --test "output" --reference "correct_receipts"
 
-See the script to adjust time-window and other settings.
+See the script to adjust time-window and other hyperparameters.
