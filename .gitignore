@@ -11,3 +11,9 @@ PROBLEM1/william/images.zip
 /PROBLEM1/efficientNet_object_detection/images
 
 **/images/**
+/PROBLEM2/william_pipeline/venv
+/PROBLEM2/william_pipeline/dataset
+/PROBLEM2/william_pipeline/videos
+/PROBLEM2/william_pipeline/yolo_dataset
+/PROBLEM2/william_pipeline/output
+/PROBLEM2/william_pipeline/venv_windows
