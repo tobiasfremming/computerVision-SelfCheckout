@@ -18,15 +18,8 @@ Om et produkt forsvinner og ikke kommer tilbake legges det til i "pending_scans"
 2. Activate venv
 3. python -m pip install -r requirements.txt
 4. You need to manually install the correct torch with the right cuda version for your pc. For example: `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121`
-5. python final_system.py
-6. put files into a videos folder in the same directory as final_system.py
+5. put files into a "videos" folder in the same directory as main.py
+6. python main.py
 
 #### Cuda and MacOS silicon
-The program should detect cuda and apple silicon. If not, make sure the correct pip drivers are installed. See final_system.py for more details
-
-# Testing
-## Check generated receipts against the correct ones for each video.
-
-python evaluate_receipts.py --test "output" --reference "correct_receipts"
-
-See the script to adjust time-window and other hyperparameters.
+The program should detect cuda and apple silicon. If not, make sure the correct pip drivers are installed. See main.py for more details
