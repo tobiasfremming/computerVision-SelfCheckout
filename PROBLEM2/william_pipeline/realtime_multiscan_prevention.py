@@ -43,15 +43,22 @@ class_id_to_name = {
 }
 
 # Define the scan region for detecting 'scan events'
-def get_scan_zone(resolution):
-    if resolution == 480:
-        return (300, 200, 560, 550)
-    elif resolution == 720:
-        return (350, 240, 700, 600)
-    elif resolution == 1080:
-        return (750, 350, 1280, 1120)
-    else:
-        return (300, 400, 600, 600)  # default fallback
+def get_scan_zone(cap):
+    
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # Your chosen normalized coordinates [0..1]
+    x1_uv, y1_uv, x2_uv, y2_uv = (0.35, 0.35, 0.7, 1.0)
+
+    x1 = int(x1_uv * width)
+    y1 = int(y1_uv * height)
+    x2 = int(x2_uv * width)
+    y2 = int(y2_uv * height)
+
+    return (x1, y1, x2, y2)
+
+
 
 def is_inside_scan_area(bbox, scan_zone):
     x1, y1, x2, y2 = bbox
@@ -64,7 +71,7 @@ def process_video(video_path, model, resolution):
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_num = 0
-    scan_zone = get_scan_zone(resolution)
+    scan_zone = get_scan_zone(cap)
 
     scanned_log = {}  # track_id -> (product_name, timestamp)
     
